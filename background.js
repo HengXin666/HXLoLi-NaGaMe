@@ -467,59 +467,95 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // ===== Popup: 发起 GitHub Device Flow =====
+  // ===== Popup: 发起 GitHub Device Flow (一条龙: 启动 → 打开页面 → 后台轮询 → 拉私钥) =====
   if (message.type === 'START_GITHUB_AUTH') {
     (async () => {
       try {
+        // 1. 启动 Device Flow
         const deviceFlowData = await startDeviceFlow();
-        return { success: true, ...deviceFlowData };
-      } catch (err) {
-        return { success: false, error: err.message };
-      }
-    })().then(sendResponse);
-    return true;
-  }
 
-  // ===== Popup: 轮询 GitHub Token =====
-  if (message.type === 'POLL_GITHUB_TOKEN') {
-    (async () => {
-      try {
-        const token = await pollForToken(
-          message.deviceCode,
-          message.interval,
-          message.expiresIn,
-        );
+        // 2. 将验证码写入 storage, popup 可以显示 (即使 popup 关了重开也能看到)
+        await chrome.storage.local.set({
+          authState: {
+            status: 'pending',
+            userCode: deviceFlowData.user_code,
+            verificationUri: deviceFlowData.verification_uri,
+            startedAt: Date.now(),
+          }
+        });
 
-        // 验证 token 并获取用户名
-        const username = await verifyToken(token);
+        // 3. 自动打开 GitHub 验证页面
+        chrome.tabs.create({ url: deviceFlowData.verification_uri, active: true });
 
-        // 立即拉取私钥
-        const config = await getConfig();
-        config.githubToken = token;
-        config.githubUser = username;
+        // 4. 立即返回给 popup (popup 随时可以关闭了!)
+        sendResponse({ success: true, user_code: deviceFlowData.user_code, verification_uri: deviceFlowData.verification_uri });
 
+        // 5. 在后台持续轮询 (popup 关了也没关系)
         try {
-          const pem = await fetchPrivateKey(token);
-          config.rsaPrivateKeyPem = pem;
-          config.keyFetchedAt = Date.now();
-        } catch (keyErr) {
-          // Token 有效但拉不到私钥 → 仍然保存 token, 报告警告
+          const token = await pollForToken(
+            deviceFlowData.device_code,
+            deviceFlowData.interval,
+            deviceFlowData.expires_in,
+          );
+
+          // 验证 token 并获取用户名
+          const username = await verifyToken(token);
+
+          // 拉取私钥
+          const config = await getConfig();
+          config.githubToken = token;
+          config.githubUser = username;
+
+          let keyLoaded = false;
+          let keyError = '';
+
+          try {
+            const pem = await fetchPrivateKey(token);
+            config.rsaPrivateKeyPem = pem;
+            config.keyFetchedAt = Date.now();
+            keyLoaded = true;
+          } catch (keyErr) {
+            keyError = keyErr.message;
+          }
+
           await setConfig(config);
-          return {
-            success: true,
-            username,
-            keyLoaded: false,
-            keyError: keyErr.message,
-          };
+
+          // 6. 写入 authState, popup (如果打开了) 通过 storage.onChanged 感知
+          await chrome.storage.local.set({
+            authState: {
+              status: 'success',
+              username,
+              keyLoaded,
+              keyError,
+              completedAt: Date.now(),
+            }
+          });
+
+          console.log(`[HXLoLi-NaGaMe] ✅ GitHub 授权成功: ${username}, 私钥: ${keyLoaded ? '已加载' : keyError}`);
+
+        } catch (pollErr) {
+          await chrome.storage.local.set({
+            authState: {
+              status: 'error',
+              error: pollErr.message,
+              completedAt: Date.now(),
+            }
+          });
+          console.error('[HXLoLi-NaGaMe] ❌ GitHub 授权失败:', pollErr.message);
         }
 
-        await setConfig(config);
-        return { success: true, username, keyLoaded: true };
       } catch (err) {
-        return { success: false, error: err.message };
+        sendResponse({ success: false, error: err.message });
+        await chrome.storage.local.set({
+          authState: {
+            status: 'error',
+            error: err.message,
+            completedAt: Date.now(),
+          }
+        });
       }
-    })().then(sendResponse);
-    return true;
+    })();
+    return true; // 异步响应
   }
 
   // ===== Popup: 手动设置 Token (备用方式: Fine-grained PAT) =====

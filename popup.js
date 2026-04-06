@@ -105,71 +105,42 @@ async function init() {
   if (config) {
     updateUI(config);
   }
+
+  // 检查是否有正在进行的授权 (用户可能关了 popup 再打开)
+  const stored = await chrome.storage.local.get('authState');
+  if (stored.authState) {
+    handleAuthState(stored.authState);
+  }
 }
 
 // ============ GitHub Device Flow 授权 ============
 
-let isAuthInProgress = false;
-
 authBtn.addEventListener('click', async () => {
-  if (isAuthInProgress) return;
-  isAuthInProgress = true;
   authBtn.disabled = true;
   authBtn.textContent = '正在连接 GitHub...';
 
   try {
-    // 1. 发起 Device Flow
+    // 只发一条消息给 background, 它会:
+    // 1. 启动 Device Flow
+    // 2. 打开 GitHub 验证页面
+    // 3. 在后台持续轮询 token (popup 关了也没关系!)
+    // 4. 结果写入 storage.local.authState
     const result = await sendMsg({ type: 'START_GITHUB_AUTH' });
 
     if (!result?.success) {
       throw new Error(result?.error || '启动授权失败');
     }
 
-    // 2. 显示验证码面板
+    // 显示验证码面板
     deviceFlowPanel.classList.add('show');
     authSection.classList.add('hidden');
 
     userCodeEl.textContent = result.user_code;
     verificationLink.href = result.verification_uri;
-    pollStatus.textContent = '等待授权中...';
-
-    // 3. 自动打开 GitHub 验证页面
-    chrome.tabs.create({ url: result.verification_uri, active: true });
-
-    // 4. 后台轮询 Token
-    const pollResult = await sendMsg({
-      type: 'POLL_GITHUB_TOKEN',
-      deviceCode: result.device_code,
-      interval: result.interval,
-      expiresIn: result.expires_in,
-    });
-
-    if (pollResult?.success) {
-      deviceFlowPanel.classList.remove('show');
-      showToast(`✅ 欢迎, ${pollResult.username}!`);
-
-      if (pollResult.keyLoaded) {
-        showToast('✅ 授权成功, RSA 私钥已加载!');
-      } else {
-        showToast(`⚠️ 授权成功, 但私钥加载失败: ${pollResult.keyError}`, '#d29922');
-      }
-
-      // 刷新 UI
-      const config = await sendMsg({ type: 'GET_FULL_CONFIG' });
-      if (config) updateUI(config);
-
-      // 通知当前标签页重试
-      notifyTab();
-    } else {
-      throw new Error(pollResult?.error || '授权失败');
-    }
+    pollStatus.textContent = '⏳ 等待授权中... (可以关闭此弹窗, 后台会继续等待)';
 
   } catch (err) {
     showToast(`❌ ${err.message}`, '#f85149');
-    deviceFlowPanel.classList.remove('show');
-    authSection.classList.remove('hidden');
-  } finally {
-    isAuthInProgress = false;
     authBtn.disabled = false;
     authBtn.innerHTML = `
       <svg class="gh-icon" viewBox="0 0 16 16" fill="currentColor">
@@ -179,6 +150,64 @@ authBtn.addEventListener('click', async () => {
     `;
   }
 });
+
+// ============ 监听后台授权结果 (核心: popup 关了重开也能感知) ============
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.authState) return;
+  const authState = changes.authState.newValue;
+  if (!authState) return;
+
+  handleAuthState(authState);
+});
+
+async function handleAuthState(authState) {
+  if (authState.status === 'pending') {
+    // 正在等待用户授权
+    deviceFlowPanel.classList.add('show');
+    authSection.classList.add('hidden');
+    userCodeEl.textContent = authState.userCode;
+    verificationLink.href = authState.verificationUri;
+    pollStatus.textContent = '⏳ 等待授权中... (可以关闭此弹窗, 后台会继续等待)';
+  }
+
+  if (authState.status === 'success') {
+    deviceFlowPanel.classList.remove('show');
+
+    if (authState.keyLoaded) {
+      showToast(`✅ 欢迎, ${authState.username}! 私钥已加载`);
+    } else {
+      showToast(`⚠️ 授权成功, 但私钥加载失败: ${authState.keyError}`, '#d29922');
+    }
+
+    // 刷新 UI
+    const config = await sendMsg({ type: 'GET_FULL_CONFIG' });
+    if (config) updateUI(config);
+
+    // 清除 authState
+    chrome.storage.local.remove('authState');
+
+    // 通知当前标签页重试
+    notifyTab();
+  }
+
+  if (authState.status === 'error') {
+    deviceFlowPanel.classList.remove('show');
+    authSection.classList.remove('hidden');
+    showToast(`❌ ${authState.error}`, '#f85149');
+
+    authBtn.disabled = false;
+    authBtn.innerHTML = `
+      <svg class="gh-icon" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+      通过 GitHub 授权
+    `;
+
+    // 清除 authState
+    chrome.storage.local.remove('authState');
+  }
+}
 
 // ============ 复制验证码 ============
 

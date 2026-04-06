@@ -74,10 +74,13 @@ jobs:
           cp popup.js dist/firefox/
           cp -r icons dist/firefox/
 
-          # 打包 zip (未签名, 用户需手动加载)
+          # 打包 zip (用于手动加载)
           cd dist/firefox
           zip -r "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip" .
-          echo "✅ Firefox 版本打包完成"
+          # 同时生成 .xpi (本质就是 zip, 方便 Firefox 直接安装)
+          cp "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip" \
+             "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi"
+          echo "✅ Firefox 版本打包完成 (.zip + .xpi)"
 
       # ========== 生成 Release 说明 ==========
       - name: 📝 生成 Release Notes
@@ -89,10 +92,11 @@ jobs:
 
           ### 📥 下载安装
 
-          | 浏览器 | 文件 | 安装方式 |
-          |--------|------|----------|
-          | **Chrome / Edge / Brave** | `...-chrome-....zip` | 解压 → `chrome://extensions` → 加载已解压的扩展 |
-          | **Firefox** | `...-firefox-....zip` | 解压 → `about:debugging` → 临时载入附加组件 |
+          | 文件 | 说明 |
+          |------|------|
+          | `...-chrome-....zip` | **Chrome / Edge / Brave** 插件 |
+          | `...-firefox-....zip` | **Firefox** 插件 (手动加载用) |
+          | `...-firefox-....xpi` | **Firefox** 插件 (直接安装用) |
 
           ### 🌐 Chrome / Edge / Brave 安装步骤
 
@@ -106,6 +110,17 @@ jobs:
 
           ### 🦊 Firefox 安装步骤
 
+          #### 方式一：直接安装 .xpi（推荐）
+
+          1. 下载 **firefox** 版 `.xpi` 文件
+          2. 将 `.xpi` 文件拖拽到 Firefox 浏览器窗口中，或在地址栏输入 `about:addons` 后点击齿轮图标 → 「从文件安装附加组件」
+          3. 点击「添加」确认安装
+          4. 点击插件图标 → **「通过 GitHub 授权」** → 完成 ✨
+
+          > ⚠️ 如果提示签名错误，请改用方式二，或在 `about:config` 中设置 `xpinstall.signatures.required` 为 `false`（仅限 Developer Edition / Nightly）。
+
+          #### 方式二：临时加载 .zip
+
           1. 下载 **firefox** 版 `.zip` 文件并**解压**到一个固定的文件夹
           2. 地址栏输入 `about:debugging#/runtime/this-firefox`
           3. 点击 **「临时载入附加组件...」**
@@ -113,7 +128,6 @@ jobs:
           5. 点击插件图标 → **「通过 GitHub 授权」** → 完成 ✨
 
           > ⚠️ Firefox 临时加载的插件在**重启浏览器后会失效**，需要重新加载。
-          > 如需永久安装，可在 `about:config` 中设置 `xpinstall.signatures.required` 为 `false`（仅限 Developer Edition / Nightly）。
 
           ### ✨ 首次使用
 
@@ -132,5 +146,6 @@ jobs:
           files: |
             dist/HXLoLi-NaGaMe-chrome-v${{ steps.version.outputs.version }}.zip
             dist/HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip
+            dist/HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
