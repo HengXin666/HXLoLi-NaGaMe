@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>生成 HXLoLi Decrypt 图标</title>
+</head>
+<body>
+  <h2>HXLoLi Decrypt 插件图标生成器</h2>
+  <p>点击下方按钮下载各尺寸的图标：</p>
+  <canvas id="canvas" width="128" height="128"></canvas>
+  <br>
+  <button onclick="download(16)">下载 16x16</button>
+  <button onclick="download(32)">下载 32x32</button>
+  <button onclick="download(48)">下载 48x48</button>
+  <button onclick="download(128)">下载 128x128</button>
+  <button onclick="downloadAll()">下载全部</button>
+
+  <script>
+    function drawIcon(ctx, size) {
+      ctx.canvas.width = size;
+      ctx.canvas.height = size;
+
+      // 背景
+      const grad = ctx.createLinearGradient(0, 0, size, size);
+      grad.addColorStop(0, '#6d28d9');
+      grad.addColorStop(1, '#8b5cf6');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(0, 0, size, size, size * 0.2);
+      ctx.fill();
+
+      // 锁图标
+      ctx.fillStyle = 'white';
+      ctx.font = `bold ${size * 0.55}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🔓', size / 2, size / 2);
+    }
+
+    function download(size) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      drawIcon(ctx, size);
+      const link = document.createElement('a');
+      link.download = `icon${size}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    function downloadAll() {
+      [16, 32, 48, 128].forEach(s => setTimeout(() => download(s), s * 10));
+    }
+
+    // 预览
+    const ctx = document.getElementById('canvas').getContext('2d');
+    drawIcon(ctx, 128);
+  </script>
+</body>
+</html>
