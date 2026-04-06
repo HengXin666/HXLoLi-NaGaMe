@@ -165,16 +165,30 @@
   /**
    * 从解密后的 HTML 中提取 h2-h6 标题, 动态生成 TOC 并注入到 Docusaurus 的右侧目录栏。
    *
-   * Docusaurus 的 TOC 容器结构:
-   *   <div class="tableOfContents thin-scrollbar">
-   *     <ProgressBar />    (可能有)
-   *     <ul class="table-of-contents table-of-contents__left-border">
-   *       <li><a class="table-of-contents__link toc-highlight" href="#xxx">...</a></li>
-   *       ...
-   *     </ul>
+   * 关键问题:
+   *   加密页面的 MDX 没有任何 ## 标题, 所以 Docusaurus 构建时 toc = []
+   *   → BlogPostPage: `toc.length > 0 ? <TOC .../> : undefined` → toc 是 undefined
+   *   → BlogLayout: `toc ? <div>{toc}</div> : <div />` → 右侧只有一个空的占位 div
+   *   → DocItem: `canRender = !hidden && toc.length > 0` → 同理, 不渲染 TOC
+   *
+   *   因此页面中根本没有 .tableOfContents / .table-of-contents 等元素！
+   *   我们需要找到右侧的空占位 div, 自行创建完整的 TOC DOM 结构。
+   *
+   * Docusaurus 正常 TOC 的 DOM:
+   *   <div class="col" style="max-width: 21.75%">              ← 右侧列 (BlogLayout)
+   *     <div class="tableOfContents_xxxx thin-scrollbar">       ← TOC 外层容器
+   *       <ul class="table-of-contents table-of-contents__left-border">
+   *         <li><a class="table-of-contents__link toc-highlight" href="#id">标题</a></li>
+   *       </ul>
+   *     </div>
    *   </div>
    *
-   * 加密页面构建时没有标题, 所以 <ul> 为空或不存在, 我们需要填充它。
+   *   或者 (DocItem):
+   *   <div class="col col--3">
+   *     <div class="tableOfContents_xxxx thin-scrollbar">
+   *       ...同上
+   *     </div>
+   *   </div>
    */
   function injectTOC(decryptedWrapper) {
     // 从解密内容中提取 h2-h6
@@ -184,28 +198,144 @@
       return;
     }
 
-    // 找到 Docusaurus 的 TOC 容器
-    const tocContainer = document.querySelector('.table-of-contents__left-border')
+    // 策略 1: 页面已有 TOC 容器 (某些页面可能有非空 toc, 例如部分内容未加密)
+    let tocUl = document.querySelector('.table-of-contents__left-border')
       || document.querySelector('ul.table-of-contents');
 
-    if (!tocContainer) {
-      // 可能是 blog 页面或没有 TOC 栏的页面, 尝试找到 TOC 外层容器并创建 ul
-      const tocWrapper = document.querySelector('.tableOfContents_node_modules, [class*="tableOfContents"]');
-      if (!tocWrapper) {
-        console.log('[HXLoLi-NaGaMe] ℹ️ 页面无 TOC 容器, 跳过 TOC 注入');
-        return;
-      }
+    if (tocUl) {
+      tocUl.innerHTML = '';
+      buildTOCList(tocUl, headings);
+      setupTOCScrollSpy(tocUl, headings);
+      console.log(`[HXLoLi-NaGaMe] 📑 已注入 TOC 到已有容器 (${headings.length} 个标题)`);
+      return;
+    }
+
+    // 策略 2: 页面有 tableOfContents 外层但没有 ul (不太可能, 以防万一)
+    let tocWrapper = document.querySelector('[class*="tableOfContents"]');
+    if (tocWrapper) {
       const ul = document.createElement('ul');
       ul.className = 'table-of-contents table-of-contents__left-border';
       tocWrapper.appendChild(ul);
       buildTOCList(ul, headings);
-    } else {
-      // 清空已有的 (空的) TOC 内容, 重新填充
-      tocContainer.innerHTML = '';
-      buildTOCList(tocContainer, headings);
+      setupTOCScrollSpy(ul, headings);
+      console.log(`[HXLoLi-NaGaMe] 📑 已注入 TOC 到已有 wrapper (${headings.length} 个标题)`);
+      return;
     }
 
-    console.log(`[HXLoLi-NaGaMe] 📑 已注入 TOC (${headings.length} 个标题)`);
+    // 策略 3 (核心): 完全没有 TOC 容器 — 加密页面 toc=[] 导致整个 TOC 组件未渲染
+    // 需要找到右侧空列 div 并自行创建完整 TOC 结构
+
+    // Blog 页面: BlogLayout 的右侧 <div class="col" style="max-width: 21.75%">
+    // Doc 页面: DocItem 的 <div class="col col--3"> 或者根本没有右侧列
+    const rightCol = findEmptyRightColumn();
+
+    if (!rightCol) {
+      console.log('[HXLoLi-NaGaMe] ℹ️ 未找到右侧列容器, 跳过 TOC 注入');
+      return;
+    }
+
+    // 创建完整的 TOC 结构
+    const tocContainer = document.createElement('div');
+    tocContainer.className = 'thin-scrollbar';
+    tocContainer.style.cssText = 'max-height: calc(100vh - (var(--ifm-navbar-height) + 2rem)); overflow-y: auto; position: sticky; top: calc(var(--ifm-navbar-height) + 1rem);';
+
+    const ul = document.createElement('ul');
+    ul.className = 'table-of-contents table-of-contents__left-border';
+    tocContainer.appendChild(ul);
+
+    buildTOCList(ul, headings);
+    rightCol.appendChild(tocContainer);
+    setupTOCScrollSpy(ul, headings);
+
+    console.log(`[HXLoLi-NaGaMe] 📑 已创建并注入完整 TOC (${headings.length} 个标题)`);
+  }
+
+  /**
+   * 找到右侧的空列 div (BlogLayout 或 DocItem 渲染的占位列)
+   *
+   * BlogLayout 结构:
+   *   <main class="col"> → <div class="row"> → [<div class="col" 内容>, <div class="col" 空占位>]
+   *
+   * DocItem 结构:
+   *   <div class="row"> → [<div class="col docItemCol">, (可能没有右侧列)]
+   */
+  function findEmptyRightColumn() {
+    // Blog 页面: 找到 main.col 下 row 中的最后一个空 .col
+    const mainRow = document.querySelector('main.col > .row');
+    if (mainRow) {
+      const cols = mainRow.querySelectorAll(':scope > .col');
+      if (cols.length >= 2) {
+        const rightCol = cols[cols.length - 1];
+        // 确认这是空的占位列 (没有实际子元素或只有空白)
+        if (rightCol.children.length === 0 || rightCol.textContent.trim() === '') {
+          return rightCol;
+        }
+      }
+    }
+
+    // Doc 页面: 找到 .row 中的 col--3, 或者在 row 末尾添加一个
+    const docRow = document.querySelector('.row');
+    if (docRow) {
+      const col3 = docRow.querySelector('.col--3');
+      if (col3 && col3.children.length === 0) {
+        return col3;
+      }
+
+      // DocItem 如果 canRender=false, 根本不会渲染右侧列
+      // 检查是否是 doc 页面 (有 docItemCol)
+      const docItemCol = docRow.querySelector('[class*="docItemCol"]');
+      if (docItemCol) {
+        const newCol = document.createElement('div');
+        newCol.className = 'col col--3';
+        docRow.appendChild(newCol);
+        return newCol;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 简单的滚动监听: 高亮当前可见的标题对应的 TOC 链接
+   */
+  function setupTOCScrollSpy(tocUl, headings) {
+    const ACTIVE_CLASS = 'table-of-contents__link--active';
+
+    function updateActive() {
+      const links = tocUl.querySelectorAll('.table-of-contents__link');
+      let activeIdx = 0;
+      const offset = 100; // navbar 高度 + 一些余量
+
+      for (let i = 0; i < headings.length; i++) {
+        const rect = headings[i].getBoundingClientRect();
+        if (rect.top <= offset) {
+          activeIdx = i;
+        }
+      }
+
+      links.forEach((link, i) => {
+        if (i === activeIdx) {
+          link.classList.add(ACTIVE_CLASS);
+        } else {
+          link.classList.remove(ACTIVE_CLASS);
+        }
+      });
+    }
+
+    // 初始化
+    updateActive();
+
+    // 节流滚动监听
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          updateActive();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    });
   }
 
   /**
