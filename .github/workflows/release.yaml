@@ -64,7 +64,7 @@ jobs:
           mkdir -p dist/firefox
 
           # Firefox MV3: 使用 background.scripts 替代 service_worker
-          jq '.background = {"scripts": ["background.js"]} ' manifest.json > dist/firefox/manifest.json
+          jq '.background = {"scripts": ["background.js"]}' manifest.json > dist/firefox/manifest.json
 
           # 复制插件文件
           cp background.js dist/firefox/
@@ -74,16 +74,14 @@ jobs:
           cp popup.js dist/firefox/
           cp -r icons dist/firefox/
 
-          # 打包 xpi (本质是 zip, Firefox 用 .xpi 后缀)
+          # 打包 zip (未签名, 用户需手动加载)
           cd dist/firefox
-          zip -r "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi" .
+          zip -r "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip" .
           echo "✅ Firefox 版本打包完成"
 
       # ========== 生成 Release 说明 ==========
       - name: 📝 生成 Release Notes
-        id: notes
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           cat > dist/RELEASE_NOTES.md << 'NOTES_EOF'
           ## 🧩 HXLoLi-NaGaMe v${{ steps.version.outputs.version }}
 
@@ -93,22 +91,29 @@ jobs:
 
           | 浏览器 | 文件 | 安装方式 |
           |--------|------|----------|
-          | **Chrome / Edge / Brave** | `HXLoLi-NaGaMe-chrome-v${{ steps.version.outputs.version }}.zip` | 解压后在 `chrome://extensions` 加载 |
-          | **Firefox** | `HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi` | 直接打开 `.xpi` 文件安装 |
+          | **Chrome / Edge / Brave** | `...-chrome-....zip` | 解压 → `chrome://extensions` → 加载已解压的扩展 |
+          | **Firefox** | `...-firefox-....zip` | 解压 → `about:debugging` → 临时载入附加组件 |
 
-          ### 🌐 Chrome / Edge 安装步骤
+          ### 🌐 Chrome / Edge / Brave 安装步骤
 
-          1. 下载 `.zip` 文件并解压到一个文件夹
-          2. 打开浏览器，访问 `chrome://extensions`（Edge 是 `edge://extensions`）
+          1. 下载 **chrome** 版 `.zip` 文件并**解压**到一个固定的文件夹
+          2. 打开浏览器，地址栏输入 `chrome://extensions`（Edge 输入 `edge://extensions`）
           3. 打开右上角的 **「开发者模式」**
           4. 点击 **「加载已解压的扩展程序」** → 选择解压后的文件夹
-          5. 点击插件图标 → **「通过 GitHub 授权」**
+          5. 点击插件图标 → **「通过 GitHub 授权」** → 完成 ✨
+
+          > ⚠️ 不要删除解压后的文件夹，否则插件会失效。
 
           ### 🦊 Firefox 安装步骤
 
-          1. 下载 `.xpi` 文件
-          2. Firefox 会自动弹出安装提示，点击 **「添加」**
-          3. 点击插件图标 → **「通过 GitHub 授权」**
+          1. 下载 **firefox** 版 `.zip` 文件并**解压**到一个固定的文件夹
+          2. 地址栏输入 `about:debugging#/runtime/this-firefox`
+          3. 点击 **「临时载入附加组件...」**
+          4. 选择解压文件夹中的 `manifest.json` 文件
+          5. 点击插件图标 → **「通过 GitHub 授权」** → 完成 ✨
+
+          > ⚠️ Firefox 临时加载的插件在**重启浏览器后会失效**，需要重新加载。
+          > 如需永久安装，可在 `about:config` 中设置 `xpinstall.signatures.required` 为 `false`（仅限 Developer Edition / Nightly）。
 
           ### ✨ 首次使用
 
@@ -126,6 +131,6 @@ jobs:
           prerelease: false
           files: |
             dist/HXLoLi-NaGaMe-chrome-v${{ steps.version.outputs.version }}.zip
-            dist/HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi
+            dist/HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
