@@ -1,0 +1,131 @@
+name: "📦 发布插件 Release"
+
+on:
+  push:
+    tags:
+      - 'v*'  # 推送 v开头的 tag 触发, 如 v3.0.0
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 创建 Release 需要写权限
+
+    steps:
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
+
+      - name: 📋 提取版本号
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "📌 版本: ${VERSION} (tag: ${TAG})"
+
+      - name: 🔍 校验 manifest.json 版本一致性
+        run: |
+          MANIFEST_VER=$(jq -r '.version' manifest.json)
+          TAG_VER="${{ steps.version.outputs.version }}"
+          if [ "${MANIFEST_VER}" != "${TAG_VER}" ]; then
+            echo "❌ 版本不匹配! manifest.json: ${MANIFEST_VER}, tag: ${TAG_VER}"
+            echo "   请先更新 manifest.json 的 version 字段"
+            exit 1
+          fi
+          echo "✅ 版本一致: ${TAG_VER}"
+
+      # ========== Chrome 版本 ==========
+      - name: 🌐 构建 Chrome 版本
+        run: |
+          echo "📦 打包 Chrome 版本..."
+          mkdir -p dist/chrome
+
+          # Chrome MV3: 使用 service_worker, 不需要 browser_specific_settings
+          jq 'del(.browser_specific_settings)' manifest.json > dist/chrome/manifest.json
+
+          # 复制插件文件
+          cp background.js dist/chrome/
+          cp browser-polyfill.js dist/chrome/
+          cp content.js dist/chrome/
+          cp popup.html dist/chrome/
+          cp popup.js dist/chrome/
+          cp -r icons dist/chrome/
+
+          # 打包 zip
+          cd dist/chrome
+          zip -r "../HXLoLi-NaGaMe-chrome-v${{ steps.version.outputs.version }}.zip" .
+          echo "✅ Chrome 版本打包完成"
+
+      # ========== Firefox 版本 ==========
+      - name: 🦊 构建 Firefox 版本
+        run: |
+          echo "📦 打包 Firefox 版本..."
+          mkdir -p dist/firefox
+
+          # Firefox MV3: 使用 background.scripts 替代 service_worker
+          jq '.background = {"scripts": ["background.js"]} ' manifest.json > dist/firefox/manifest.json
+
+          # 复制插件文件
+          cp background.js dist/firefox/
+          cp browser-polyfill.js dist/firefox/
+          cp content.js dist/firefox/
+          cp popup.html dist/firefox/
+          cp popup.js dist/firefox/
+          cp -r icons dist/firefox/
+
+          # 打包 xpi (本质是 zip, Firefox 用 .xpi 后缀)
+          cd dist/firefox
+          zip -r "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi" .
+          echo "✅ Firefox 版本打包完成"
+
+      # ========== 生成 Release 说明 ==========
+      - name: 📝 生成 Release Notes
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > dist/RELEASE_NOTES.md << 'NOTES_EOF'
+          ## 🧩 HXLoLi-NaGaMe v${{ steps.version.outputs.version }}
+
+          HXLoLi 博客受保护页面自动解锁插件 (NaGaMe = 眺め = 凝望)
+
+          ### 📥 下载安装
+
+          | 浏览器 | 文件 | 安装方式 |
+          |--------|------|----------|
+          | **Chrome / Edge / Brave** | `HXLoLi-NaGaMe-chrome-v${{ steps.version.outputs.version }}.zip` | 解压后在 `chrome://extensions` 加载 |
+          | **Firefox** | `HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi` | 直接打开 `.xpi` 文件安装 |
+
+          ### 🌐 Chrome / Edge 安装步骤
+
+          1. 下载 `.zip` 文件并解压到一个文件夹
+          2. 打开浏览器，访问 `chrome://extensions`（Edge 是 `edge://extensions`）
+          3. 打开右上角的 **「开发者模式」**
+          4. 点击 **「加载已解压的扩展程序」** → 选择解压后的文件夹
+          5. 点击插件图标 → **「通过 GitHub 授权」**
+
+          ### 🦊 Firefox 安装步骤
+
+          1. 下载 `.xpi` 文件
+          2. Firefox 会自动弹出安装提示，点击 **「添加」**
+          3. 点击插件图标 → **「通过 GitHub 授权」**
+
+          ### ✨ 首次使用
+
+          安装后点击插件图标，一键通过 GitHub 授权即可。
+          授权完成后访问受保护页面会自动解锁，无需任何手动配置。
+          NOTES_EOF
+
+      # ========== 发布 Release ==========
+      - name: 🚀 发布 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "HXLoLi-NaGaMe ${{ steps.version.outputs.tag }}"
+          body_path: dist/RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: |
+            dist/HXLoLi-NaGaMe-chrome-v${{ steps.version.outputs.version }}.zip
+            dist/HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
