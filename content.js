@@ -174,7 +174,18 @@
       // Markdown → HTML
       const html = markdownToHtml(response.plaintext);
 
-      // 通过 CustomEvent 发送给 ProtectedPage React 组件
+      // 方案 A: 通过 DOM 属性传递解密后的 HTML (最可靠的跨 world 通信方式)
+      // 找到对应的 marker 元素, 将解密结果写入 data 属性
+      const targetMarker = document.querySelector(`[data-hx-instance="${instanceId}"]`);
+      if (targetMarker) {
+        targetMarker.setAttribute('data-hx-decrypted-html', html);
+        targetMarker.setAttribute('data-hx-status', 'decrypted');
+        console.log(`[HXLoLi-NaGaMe] 📝 已将解密 HTML 写入 DOM 属性 (data-hx-decrypted-html, ${html.length} chars)`);
+      } else {
+        console.warn(`[HXLoLi-NaGaMe] ⚠️ 找不到 instance=${instanceId} 的 DOM 元素`);
+      }
+
+      // 方案 B: 同时通过 CustomEvent 通知 (作为备选)
       window.dispatchEvent(new CustomEvent('hxloli-decrypted', {
         detail: {
           type: 'HXLOLI_DECRYPTED',
