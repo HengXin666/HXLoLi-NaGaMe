@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HXLoLi-NaGaMe",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "HXLoLi 博客受保护页面自动解锁 🔓 (NaGaMe = 眺め = 凝望)",
   "permissions": [
     "storage",
@@ -10,7 +10,7 @@
   "host_permissions": [
     "https://hengxin666.github.io/*",
     "https://hxloli.pages.dev/*",
-    "http://localhost:*/*",
+    "*://localhost/*",
     "https://github.com/*",
     "https://api.github.com/*",
     "https://raw.githubusercontent.com/*"
@@ -20,7 +20,7 @@
       "matches": [
         "https://hengxin666.github.io/HXLoLi/*",
         "https://hxloli.pages.dev/*",
-        "http://localhost:*/*"
+        "*://localhost/*"
       ],
       "js": ["browser-polyfill.js", "content.js"],
       "run_at": "document_idle"
