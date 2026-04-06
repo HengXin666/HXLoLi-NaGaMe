@@ -6,7 +6,12 @@
  *   2. 读取 data-hx-cipher 中的 base64 密文
  *   3. 发送给 Background Service Worker 进行混合解密
  *   4. 接收解密后的 Markdown 明文
- *   5. 渲染为 HTML 并通过 CustomEvent 注入页面
+ *   5. 渲染为 HTML 并 **直接替换 DOM** (不依赖 React state)
+ *
+ * 为什么直接替换 DOM:
+ *   - Content Script 运行在 isolated world, React 运行在 main world
+ *   - CustomEvent.detail 和 MutationObserver 跨 world 均不可靠
+ *   - 唯一共享的是 DOM 树, 直接操作 DOM 是 100% 可靠的方式
  *
  * 安全:
  *   - Content Script 不持有密钥
@@ -129,6 +134,46 @@
       .replace(/"/g, '&quot;');
   }
 
+  // ============ 直接 DOM 替换 (核心渲染) ============
+
+  /**
+   * 找到 marker 所在的 ProtectedPage 容器, 直接替换整个锁定界面为解密后的 HTML。
+   * 这是唯一 100% 可靠的方式 —— Content Script 与页面共享 DOM 树。
+   */
+  function replaceWithDecryptedContent(marker, html) {
+    // marker 是 [data-hx-protected] 的 div, 它的父元素是 React 的 protectedContainer
+    // DOM 结构: <div class="protectedContainer"> → <div data-hx-protected .../> + <div class="lockCard">...</div>
+    const container = marker.closest('[class*="protectedContainer"]') || marker.parentElement;
+    if (!container) {
+      console.warn('[HXLoLi-NaGaMe] ⚠️ 找不到 protectedContainer, 回退到 marker.parentElement');
+      return;
+    }
+
+    // 构建解密后的 DOM
+    const decryptedWrapper = document.createElement('div');
+    decryptedWrapper.setAttribute('data-hx-nagame-decrypted', 'true');
+    decryptedWrapper.innerHTML = `
+      <div style="
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.75rem;
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        border-radius: 999px;
+        color: #22c55e;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-bottom: 1.5rem;
+      ">🔓 内容已解锁</div>
+      <div class="markdown">${html}</div>
+    `;
+
+    // 替换整个容器
+    container.replaceWith(decryptedWrapper);
+    console.log('[HXLoLi-NaGaMe] 🎉 已直接替换 DOM, 解密内容已显示');
+  }
+
   // ============ 页面检测与解密 ============
 
   function findProtectedMarkers() {
@@ -148,15 +193,6 @@
     // 通知 badge: 检测到受保护页面
     chrome.runtime.sendMessage({ type: 'DECRYPT_STATUS', protected: true, decrypted: false });
 
-    // 通知页面组件: 正在解密
-    window.dispatchEvent(new CustomEvent('hxloli-decrypting', {
-      detail: {
-        type: 'HXLOLI_DECRYPTING',
-        instanceId,
-        message: '正在解密...',
-      }
-    }));
-
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'DECRYPT_CIPHER',
@@ -174,25 +210,11 @@
       // Markdown → HTML
       const html = markdownToHtml(response.plaintext);
 
-      // 方案 A: 通过 DOM 属性传递解密后的 HTML (最可靠的跨 world 通信方式)
-      // 找到对应的 marker 元素, 将解密结果写入 data 属性
-      const targetMarker = document.querySelector(`[data-hx-instance="${instanceId}"]`);
-      if (targetMarker) {
-        targetMarker.setAttribute('data-hx-decrypted-html', html);
-        targetMarker.setAttribute('data-hx-status', 'decrypted');
-        console.log(`[HXLoLi-NaGaMe] 📝 已将解密 HTML 写入 DOM 属性 (data-hx-decrypted-html, ${html.length} chars)`);
-      } else {
-        console.warn(`[HXLoLi-NaGaMe] ⚠️ 找不到 instance=${instanceId} 的 DOM 元素`);
-      }
-
-      // 方案 B: 同时通过 CustomEvent 通知 (作为备选)
-      window.dispatchEvent(new CustomEvent('hxloli-decrypted', {
-        detail: {
-          type: 'HXLOLI_DECRYPTED',
-          instanceId,
-          html,
-        }
-      }));
+      // ====== 直接替换 DOM (最可靠: 不依赖 React state / CustomEvent / MutationObserver) ======
+      // Content Script 和 React 组件分属 isolated world 和 main world,
+      // CustomEvent.detail 和 MutationObserver 在跨 world 时都不可靠。
+      // 唯一 100% 可靠的方式: 直接操作共享的 DOM 树。
+      replaceWithDecryptedContent(marker, html);
 
       // 通知 badge: 解密成功
       chrome.runtime.sendMessage({ type: 'DECRYPT_STATUS', protected: true, decrypted: true });
