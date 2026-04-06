@@ -152,26 +152,123 @@
     // 构建解密后的 DOM
     const decryptedWrapper = document.createElement('div');
     decryptedWrapper.setAttribute('data-hx-nagame-decrypted', 'true');
-    decryptedWrapper.innerHTML = `
-      <div style="
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        padding: 0.25rem 0.75rem;
-        background: rgba(34, 197, 94, 0.1);
-        border: 1px solid rgba(34, 197, 94, 0.3);
-        border-radius: 999px;
-        color: #22c55e;
-        font-size: 0.75rem;
-        font-weight: 600;
-        margin-bottom: 1.5rem;
-      ">🔓 内容已解锁</div>
-      <div class="markdown">${html}</div>
-    `;
+    decryptedWrapper.innerHTML = `<div class="markdown">${html}</div>`;
 
     // 替换整个容器
     container.replaceWith(decryptedWrapper);
     console.log('[HXLoLi-NaGaMe] 🎉 已直接替换 DOM, 解密内容已显示');
+
+    // 解密后动态生成 TOC (Docusaurus 构建时提取不到加密内容的标题)
+    injectTOC(decryptedWrapper);
+  }
+
+  /**
+   * 从解密后的 HTML 中提取 h2-h6 标题, 动态生成 TOC 并注入到 Docusaurus 的右侧目录栏。
+   *
+   * Docusaurus 的 TOC 容器结构:
+   *   <div class="tableOfContents thin-scrollbar">
+   *     <ProgressBar />    (可能有)
+   *     <ul class="table-of-contents table-of-contents__left-border">
+   *       <li><a class="table-of-contents__link toc-highlight" href="#xxx">...</a></li>
+   *       ...
+   *     </ul>
+   *   </div>
+   *
+   * 加密页面构建时没有标题, 所以 <ul> 为空或不存在, 我们需要填充它。
+   */
+  function injectTOC(decryptedWrapper) {
+    // 从解密内容中提取 h2-h6
+    const headings = decryptedWrapper.querySelectorAll('h2, h3, h4, h5, h6');
+    if (headings.length === 0) {
+      console.log('[HXLoLi-NaGaMe] ℹ️ 解密内容中无标题, 跳过 TOC 注入');
+      return;
+    }
+
+    // 找到 Docusaurus 的 TOC 容器
+    const tocContainer = document.querySelector('.table-of-contents__left-border')
+      || document.querySelector('ul.table-of-contents');
+
+    if (!tocContainer) {
+      // 可能是 blog 页面或没有 TOC 栏的页面, 尝试找到 TOC 外层容器并创建 ul
+      const tocWrapper = document.querySelector('.tableOfContents_node_modules, [class*="tableOfContents"]');
+      if (!tocWrapper) {
+        console.log('[HXLoLi-NaGaMe] ℹ️ 页面无 TOC 容器, 跳过 TOC 注入');
+        return;
+      }
+      const ul = document.createElement('ul');
+      ul.className = 'table-of-contents table-of-contents__left-border';
+      tocWrapper.appendChild(ul);
+      buildTOCList(ul, headings);
+    } else {
+      // 清空已有的 (空的) TOC 内容, 重新填充
+      tocContainer.innerHTML = '';
+      buildTOCList(tocContainer, headings);
+    }
+
+    console.log(`[HXLoLi-NaGaMe] 📑 已注入 TOC (${headings.length} 个标题)`);
+  }
+
+  /**
+   * 根据标题层级构建嵌套的 TOC <li> 列表。
+   * Docusaurus 的 TOC 格式:
+   *   <li>
+   *     <a class="table-of-contents__link toc-highlight" href="#id">标题文字</a>
+   *     <ul>  ← 子级标题
+   *       <li>...</li>
+   *     </ul>
+   *   </li>
+   */
+  function buildTOCList(container, headings) {
+    const LINK_CLASS = 'table-of-contents__link toc-highlight';
+
+    // 找到最小的标题级别作为顶级
+    let minLevel = 6;
+    for (const h of headings) {
+      const level = parseInt(h.tagName.charAt(1));
+      if (level < minLevel) minLevel = level;
+    }
+
+    // 用栈来维护嵌套层级
+    let currentList = container;
+    let currentLevel = minLevel;
+    const listStack = [{ list: container, level: minLevel }];
+
+    for (const h of headings) {
+      const level = parseInt(h.tagName.charAt(1));
+      const id = h.id || h.textContent.toLowerCase().replace(/[^\w\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '');
+
+      // 确保 heading 有 id (用于锚点跳转)
+      if (!h.id) h.id = id;
+
+      if (level > currentLevel) {
+        // 需要向下嵌套
+        const subUl = document.createElement('ul');
+        const lastLi = currentList.querySelector(':scope > li:last-child');
+        if (lastLi) {
+          lastLi.appendChild(subUl);
+        } else {
+          currentList.appendChild(subUl);
+        }
+        listStack.push({ list: subUl, level });
+        currentList = subUl;
+        currentLevel = level;
+      } else if (level < currentLevel) {
+        // 回退到上层
+        while (listStack.length > 1 && listStack[listStack.length - 1].level > level) {
+          listStack.pop();
+        }
+        currentList = listStack[listStack.length - 1].list;
+        currentLevel = listStack[listStack.length - 1].level;
+      }
+
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.className = LINK_CLASS;
+      a.href = `#${id}`;
+      a.textContent = h.textContent;
+      li.appendChild(a);
+      currentList.appendChild(li);
+    }
   }
 
   // ============ 页面检测与解密 ============
