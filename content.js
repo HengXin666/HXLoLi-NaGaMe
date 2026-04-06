@@ -23,6 +23,8 @@
 (function () {
   'use strict';
 
+  console.log('[HXLoLi-NaGaMe] 🚀 Content Script 已注入到:', location.href);
+
   const PROTECTED_MAGIC = 'HXLOLI_PROTECTED_V3';
   let lastUrl = location.href;
   let processedInstances = new Set();
@@ -191,6 +193,7 @@
 
   async function scanAndProcess() {
     const markers = findProtectedMarkers();
+    console.log(`[HXLoLi-NaGaMe] 🔍 扫描页面, 找到 ${markers.length} 个受保护标记`);
 
     if (markers.length === 0) {
       chrome.runtime.sendMessage({ type: 'DECRYPT_STATUS', protected: false, decrypted: false });
@@ -198,6 +201,7 @@
     }
 
     for (const marker of markers) {
+      console.log(`[HXLoLi-NaGaMe] 📋 处理标记: magic=${marker.dataset.hxMagic}, instance=${marker.dataset.hxInstance}, cipher长度=${(marker.dataset.hxCipher || '').length}`);
       await processProtectedMarker(marker);
     }
   }
@@ -259,15 +263,43 @@
 
   // ============ 初始化 ============
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      setTimeout(scanAndProcess, 500);
-      observeRouteChanges();
-      listenForProtectedPages();
-    });
-  } else {
-    setTimeout(scanAndProcess, 500);
+  /**
+   * 多次扫描策略: Docusaurus 是 SPA, React 组件可能需要额外时间渲染,
+   * 单次 500ms 延迟不够可靠。多次重试直到找到标记或超时。
+   */
+  let initialScanCount = 0;
+  const INITIAL_SCAN_DELAYS = [500, 1000, 2000, 4000]; // 最多 4 次初始扫描
+
+  async function initialScan() {
+    const markers = findProtectedMarkers();
+    console.log(`[HXLoLi-NaGaMe] 🔍 初始扫描 #${initialScanCount + 1}, 找到 ${markers.length} 个标记`);
+
+    if (markers.length > 0) {
+      await scanAndProcess();
+      return; // 找到了, 停止重试
+    }
+
+    // 没找到标记, 安排下次重试
+    initialScanCount++;
+    if (initialScanCount < INITIAL_SCAN_DELAYS.length) {
+      const nextDelay = INITIAL_SCAN_DELAYS[initialScanCount];
+      console.log(`[HXLoLi-NaGaMe] ⏳ 未找到标记, ${nextDelay}ms 后重试...`);
+      setTimeout(initialScan, nextDelay);
+    } else {
+      console.log('[HXLoLi-NaGaMe] ℹ️ 初始扫描完毕, 未检测到受保护内容 (将继续监听路由变化和 React 通知)');
+      chrome.runtime.sendMessage({ type: 'DECRYPT_STATUS', protected: false, decrypted: false });
+    }
+  }
+
+  function startup() {
+    setTimeout(initialScan, INITIAL_SCAN_DELAYS[0]);
     observeRouteChanges();
     listenForProtectedPages();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startup);
+  } else {
+    startup();
   }
 })();

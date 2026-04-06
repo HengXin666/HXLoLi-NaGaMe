@@ -406,11 +406,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // ===== Content Script 请求解密 =====
   if (message.type === 'DECRYPT_CIPHER') {
+    console.log(`[HXLoLi-NaGaMe] 📩 收到解密请求, 密文长度: ${(message.cipher || '').length}`);
     (async () => {
       try {
         let config = await getConfig();
+        console.log(`[HXLoLi-NaGaMe] ⚙️ 配置: enabled=${config.enabled}, autoDecrypt=${config.autoDecrypt}, hasToken=${!!config.githubToken}, hasKey=${!!config.rsaPrivateKeyPem}`);
 
         if (!config.enabled || !config.autoDecrypt) {
+          console.log('[HXLoLi-NaGaMe] ⏸️ 插件已禁用或自动解密已关闭');
           return { success: false, reason: 'disabled' };
         }
 
@@ -419,12 +422,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           config = await ensurePrivateKey(config);
         } catch (err) {
           if (err.message === 'no_token') {
+            console.log('[HXLoLi-NaGaMe] 🔑 未授权 GitHub, 无法获取私钥');
             return { success: false, reason: 'no_token' };
           }
+          console.error('[HXLoLi-NaGaMe] 🔑 私钥加载失败:', err.message);
           return { success: false, reason: `密钥加载失败: ${err.message}` };
         }
 
+        console.log('[HXLoLi-NaGaMe] 🔓 开始混合解密...');
         const plaintext = await hybridDecrypt(message.cipher, config.rsaPrivateKeyPem);
+        console.log(`[HXLoLi-NaGaMe] ✅ 解密成功, 明文长度: ${plaintext.length}`);
         return { success: true, plaintext };
       } catch (err) {
         console.error('[HXLoLi-NaGaMe] ❌ 解密失败:', err.message);
