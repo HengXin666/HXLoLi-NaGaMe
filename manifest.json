@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HXLoLi-NaGaMe",
-  "version": "3.3.2",
+  "version": "3.3.3",
   "description": "HXLoLi 博客受保护页面自动解锁 🔓 (NaGaMe = 眺め = 凝望)",
   "permissions": [
     "storage",
@@ -27,7 +27,8 @@
     }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
   },
   "action": {
     "default_popup": "popup.html",
@@ -47,7 +48,10 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "nagame@hxloli.pages.dev",
-      "strict_min_version": "109.0"
+      "strict_min_version": "109.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   }
 }

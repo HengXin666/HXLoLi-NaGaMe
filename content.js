@@ -152,7 +152,15 @@
     // 构建解密后的 DOM
     const decryptedWrapper = document.createElement('div');
     decryptedWrapper.setAttribute('data-hx-nagame-decrypted', 'true');
-    decryptedWrapper.innerHTML = `<div class="markdown">${html}</div>`;
+    const markdownDiv = document.createElement('div');
+    markdownDiv.className = 'markdown';
+    // 使用 DOMParser 安全地解析 HTML，避免直接 innerHTML 赋值
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    while (doc.body.firstChild) {
+      markdownDiv.appendChild(doc.body.firstChild);
+    }
+    decryptedWrapper.appendChild(markdownDiv);
 
     // 替换整个容器
     container.replaceWith(decryptedWrapper);
