@@ -680,38 +680,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const stored = await chrome.storage.local.get('authState');
       const authState = stored.authState;
 
+      // 检查是否已经有token但authState没同步
+      const config = await getConfig();
+      if (config.githubToken) {
+        // 已经授权成功了, 只是authState没同步
+        const newAuthState = {
+          status: 'success',
+          username: config.githubUser || '',
+          keyLoaded: !!config.rsaPrivateKeyPem,
+          keyError: config.rsaPrivateKeyPem ? '' : '私钥未加载',
+          completedAt: Date.now(),
+        };
+        await chrome.storage.local.set({ authState: newAuthState });
+        return { success: true, status: 'already_authorized' };
+      }
+
+      // 检查是否有正在进行的授权
       if (!authState || authState.status !== 'pending') {
-        // 没有正在进行的授权, 检查是否已经有 token 了
-        const config = await getConfig();
-        if (config.githubToken) {
-          // 已经授权成功了, 只是 authState 没同步
-          await chrome.storage.local.set({
-            authState: {
-              status: 'success',
-              username: config.githubUser || '',
-              keyLoaded: !!config.rsaPrivateKeyPem,
-              keyError: config.rsaPrivateKeyPem ? '' : '私钥未加载',
-              completedAt: Date.now(),
-            }
-          });
-          return { success: true, status: 'already_authorized' };
-        }
         return { success: true, status: 'no_pending_auth' };
       }
 
-      // 有 pending 授权, 尝试直接检查 token 是否已存在
-      const config = await getConfig();
-      if (config.githubToken) {
+      // 有pending授权, 检查是否超时
+      const now = Date.now();
+      const startedAt = authState.startedAt || 0;
+      const expiresIn = 900 * 1000; // 15分钟
+      
+      if (now - startedAt > expiresIn) {
+        // 授权超时
         await chrome.storage.local.set({
           authState: {
-            status: 'success',
-            username: config.githubUser || '',
-            keyLoaded: !!config.rsaPrivateKeyPem,
-            keyError: config.rsaPrivateKeyPem ? '' : '私钥未加载',
-            completedAt: Date.now(),
+            status: 'error',
+            error: '授权超时, 请重新操作',
+            completedAt: now,
           }
         });
-        return { success: true, status: 'already_authorized' };
+        return { success: true, status: 'timeout' };
       }
 
       return { success: true, status: 'still_pending' };
@@ -723,9 +726,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'OPEN_PINNED_WINDOW') {
     chrome.windows.create({
       url: chrome.runtime.getURL('popup.html?pinned=true'),
-      type: 'panel',
+      type: 'normal',
       width: 420,
       height: 700,
+      top: 100,
+      left: 100,
+      focused: true,
     });
     return false;
   }

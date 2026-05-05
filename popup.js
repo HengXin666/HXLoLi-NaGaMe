@@ -80,7 +80,7 @@ function updateUI(config) {
     statusText.textContent = '已授权, 但私钥未加载';
   } else {
     statusDot.className = 'status-dot active';
-    statusText.textContent = config.autoDecrypt ? '🔓 自动解密已启用' : '手动模式';
+    statusText.textContent = config.autoDecrypt ? '自动解密已启用' : '手动模式';
   }
 
   // 用户卡片 vs 授权按钮
@@ -89,13 +89,13 @@ function updateUI(config) {
     authSection.classList.add('hidden');
 
     userName.textContent = config.githubUser || '已授权';
-    userAvatar.textContent = '🐙';
+    userAvatar.textContent = 'GitHub';
 
     if (config.hasKey) {
-      userKeyStatus.textContent = '✅ RSA 私钥已加载';
+      userKeyStatus.textContent = 'RSA 私钥已加载';
       userKeyStatus.className = 'user-status';
     } else {
-      userKeyStatus.textContent = '⚠️ 私钥未加载, 请检查 HXLoLi-imouto 仓库';
+      userKeyStatus.textContent = '私钥未加载, 请检查 HXLoLi-imouto 仓库';
       userKeyStatus.className = 'user-status warning';
     }
   } else {
@@ -191,16 +191,16 @@ async function handleAuthState(authState) {
     authSection.classList.add('hidden');
     userCodeEl.textContent = authState.userCode;
     verificationLink.href = authState.verificationUri;
-    pollStatus.textContent = '⏳ 等待授权中... (可以关闭此弹窗, 后台会继续等待)';
+    pollStatus.textContent = '等待授权中... (可以关闭此弹窗, 后台会继续等待)';
   }
 
   if (authState.status === 'success') {
     deviceFlowPanel.classList.remove('show');
 
     if (authState.keyLoaded) {
-      showToast(`✅ 欢迎, ${authState.username}! 私钥已加载`);
+      showToast(`欢迎, ${authState.username}! 私钥已加载`);
     } else {
-      showToast(`⚠️ 授权成功, 但私钥加载失败: ${authState.keyError}`, '#d29922');
+      showToast(`授权成功, 但私钥加载失败: ${authState.keyError}`, '#d29922');
     }
 
     // 刷新 UI
@@ -217,7 +217,7 @@ async function handleAuthState(authState) {
   if (authState.status === 'error') {
     deviceFlowPanel.classList.remove('show');
     authSection.classList.remove('hidden');
-    showToast(`❌ ${authState.error}`, '#f85149');
+    showToast(authState.error, '#f85149');
 
     authBtn.disabled = false;
     authBtn.innerHTML = `
@@ -287,21 +287,21 @@ enableSwitch.addEventListener('change', async () => {
 
 refreshKeyBtn.addEventListener('click', async () => {
   refreshKeyBtn.disabled = true;
-  refreshKeyBtn.textContent = '🔑 刷新中...';
+  refreshKeyBtn.textContent = '刷新中...';
 
   const result = await sendMsg({ type: 'REFRESH_KEY' });
 
   if (result?.success) {
-    showToast('✅ RSA 私钥已刷新');
+    showToast('RSA 私钥已刷新');
     const config = await sendMsg({ type: 'GET_FULL_CONFIG' });
     if (config) updateUI(config);
     notifyTab();
   } else {
-    showToast(`❌ ${result?.error || '刷新失败'}`, '#f85149');
+    showToast(result?.error || '刷新失败', '#f85149');
   }
 
   refreshKeyBtn.disabled = false;
-  refreshKeyBtn.textContent = '🔑 刷新私钥';
+  refreshKeyBtn.textContent = '刷新私钥';
 });
 
 // ============ 刷新页面 ============
@@ -311,10 +311,10 @@ refreshPageBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) {
       await chrome.tabs.reload(tab.id);
-      showToast('🔄 页面已刷新');
+      showToast('页面已刷新');
     }
   } catch {
-    showToast('❌ 刷新失败', '#f85149');
+    showToast('刷新失败', '#f85149');
   }
 });
 
@@ -328,7 +328,7 @@ tokenToggle.addEventListener('click', () => {
 tokenSubmit.addEventListener('click', async () => {
   const token = tokenInput.value.trim();
   if (!token) {
-    showToast('⚠️ 请输入 Token', '#d29922');
+    showToast('请输入 Token', '#d29922');
     return;
   }
 
@@ -341,9 +341,9 @@ tokenSubmit.addEventListener('click', async () => {
     tokenInput.value = '';
 
     if (result.keyLoaded) {
-      showToast(`✅ 欢迎, ${result.username}! 私钥已加载`);
+      showToast(`欢迎, ${result.username}! 私钥已加载`);
     } else {
-      showToast(`⚠️ Token 有效, 但私钥加载失败: ${result.keyError}`, '#d29922');
+      showToast(`Token 有效, 但私钥加载失败: ${result.keyError}`, '#d29922');
     }
 
     const config = await sendMsg({ type: 'GET_FULL_CONFIG' });
@@ -354,7 +354,7 @@ tokenSubmit.addEventListener('click', async () => {
     tokenBody.classList.remove('show');
     tokenArrow.classList.remove('open');
   } else {
-    showToast(`❌ ${result?.error || 'Token 无效'}`, '#f85149');
+    showToast(result?.error || 'Token 无效', '#f85149');
   }
 
   tokenSubmit.disabled = false;
@@ -382,12 +382,12 @@ async function notifyTab() {
 
 refreshAuthBtn.addEventListener('click', async () => {
   refreshAuthBtn.disabled = true;
-  refreshAuthBtn.textContent = '🔃 检查中...';
+  refreshAuthBtn.textContent = '检查中...';
 
   const result = await sendMsg({ type: 'REFRESH_AUTH_STATE' });
 
   if (result?.status === 'already_authorized') {
-    showToast('✅ 授权已完成, 状态已同步');
+    showToast('授权已完成, 状态已同步');
     // 刷新 UI
     const config = await sendMsg({ type: 'GET_FULL_CONFIG' });
     if (config) updateUI(config);
@@ -396,13 +396,15 @@ refreshAuthBtn.addEventListener('click', async () => {
     authSection.classList.add('hidden');
     notifyTab();
   } else if (result?.status === 'still_pending') {
-    showToast('⏳ 授权仍在等待中, 请在 GitHub 完成验证', '#d29922');
+    showToast('授权仍在等待中, 请在 GitHub 完成验证', '#d29922');
+  } else if (result?.status === 'timeout') {
+    showToast('授权超时, 请重新操作', '#f85149');
   } else {
-    showToast('ℹ️ 没有正在进行的授权流程', '#58a6ff');
+    showToast('没有正在进行的授权流程', '#58a6ff');
   }
 
   refreshAuthBtn.disabled = false;
-  refreshAuthBtn.textContent = '🔃 刷新授权状态';
+  refreshAuthBtn.textContent = '刷新授权状态';
 });
 
 // ============ 钉住窗口 ============
@@ -420,7 +422,7 @@ repoConfigToggle.addEventListener('click', () => {
 
 repoConfigSubmit.addEventListener('click', async () => {
   repoConfigSubmit.disabled = true;
-  repoConfigSubmit.textContent = '💾 保存中...';
+  repoConfigSubmit.textContent = '保存中...';
 
   const result = await sendMsg({
     type: 'UPDATE_REPO_CONFIG',
@@ -431,13 +433,13 @@ repoConfigSubmit.addEventListener('click', async () => {
   });
 
   if (result?.success) {
-    showToast('✅ 仓库配置已保存');
+    showToast('仓库配置已保存');
   } else {
-    showToast('❌ 保存失败', '#f85149');
+    showToast('保存失败', '#f85149');
   }
 
   repoConfigSubmit.disabled = false;
-  repoConfigSubmit.textContent = '💾 保存仓库配置';
+  repoConfigSubmit.textContent = '保存仓库配置';
 });
 
 // ============ 启动 ============
