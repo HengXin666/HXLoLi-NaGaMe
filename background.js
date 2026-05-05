@@ -28,16 +28,6 @@
  */
 const GITHUB_CLIENT_ID = 'Ov23lilHGEsqAmzZK1UV';
 
-/** 私有仓库信息 */
-const PRIVATE_REPO = {
-  owner: 'HengXin666',
-  repo: 'HXLoLi-imouto',
-  /** 私钥文件在仓库中的路径 */
-  keyPath: 'private-key.pem',
-  /** 分支 */
-  branch: 'main',
-};
-
 /** 默认配置 */
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -46,7 +36,7 @@ const DEFAULT_CONFIG = {
   githubToken: '',
   /** GitHub 用户名 (展示用) */
   githubUser: '',
-  /** RSA 私钥 PEM (从 HXLoLi-imouto 拉取, 缓存) */
+  /** RSA 私钥 PEM (从私有仓库拉取, 缓存) */
   rsaPrivateKeyPem: '',
   /** 私钥最后拉取时间 */
   keyFetchedAt: 0,
@@ -55,6 +45,11 @@ const DEFAULT_CONFIG = {
     'https://hxloli.pages.dev',
     'http://localhost',
   ],
+  // 私有仓库配置 (可在设置中自定义)
+  repoOwner: 'HengXin666',
+  repoName: 'HXLoLi-imouto',
+  repoBranch: 'main',
+  repoKeyPath: 'private-key.pem',
 };
 
 // ============ 工具函数 ============
@@ -93,6 +88,22 @@ chrome.runtime.onInstalled.addListener(async () => {
     }
     if (config.keyFetchedAt === undefined) {
       config.keyFetchedAt = 0;
+      needSave = true;
+    }
+    if (config.repoOwner === undefined) {
+      config.repoOwner = DEFAULT_CONFIG.repoOwner;
+      needSave = true;
+    }
+    if (config.repoName === undefined) {
+      config.repoName = DEFAULT_CONFIG.repoName;
+      needSave = true;
+    }
+    if (config.repoBranch === undefined) {
+      config.repoBranch = DEFAULT_CONFIG.repoBranch;
+      needSave = true;
+    }
+    if (config.repoKeyPath === undefined) {
+      config.repoKeyPath = DEFAULT_CONFIG.repoKeyPath;
       needSave = true;
     }
 
@@ -213,7 +224,13 @@ async function pollForToken(deviceCode, interval, expiresIn) {
  * @returns {Promise<string>} RSA 私钥 PEM 内容
  */
 async function fetchPrivateKey(token) {
-  const url = `https://api.github.com/repos/${PRIVATE_REPO.owner}/${PRIVATE_REPO.repo}/contents/${PRIVATE_REPO.keyPath}?ref=${PRIVATE_REPO.branch}`;
+  const config = await getConfig();
+  const owner = config.repoOwner || DEFAULT_CONFIG.repoOwner;
+  const repo = config.repoName || DEFAULT_CONFIG.repoName;
+  const keyPath = config.repoKeyPath || DEFAULT_CONFIG.repoKeyPath;
+  const branch = config.repoBranch || DEFAULT_CONFIG.repoBranch;
+
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${keyPath}?ref=${branch}`;
 
   const resp = await fetch(url, {
     headers: {
@@ -229,8 +246,8 @@ async function fetchPrivateKey(token) {
 
   if (resp.status === 404) {
     throw new Error(
-      `找不到私钥文件: ${PRIVATE_REPO.owner}/${PRIVATE_REPO.repo}/${PRIVATE_REPO.keyPath}\n` +
-      `请确认仓库 HXLoLi-imouto 中有 private-key.pem 文件`
+      `找不到私钥文件: ${owner}/${repo}/${keyPath} (分支: ${branch})\n` +
+      `请确认仓库和文件路径配置正确`
     );
   }
 
@@ -469,6 +486,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         hasKey: !!config.rsaPrivateKeyPem,
         keyFetchedAt: config.keyFetchedAt,
         hasToken: !!config.githubToken,
+        repoOwner: config.repoOwner || DEFAULT_CONFIG.repoOwner,
+        repoName: config.repoName || DEFAULT_CONFIG.repoName,
+        repoBranch: config.repoBranch || DEFAULT_CONFIG.repoBranch,
+        repoKeyPath: config.repoKeyPath || DEFAULT_CONFIG.repoKeyPath,
       };
     })().then(sendResponse);
     return true;
@@ -649,6 +670,76 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (err) {
         return { success: false, error: err.message };
       }
+    })().then(sendResponse);
+    return true;
+  }
+
+  // ===== Popup: 手动刷新授权码状态 =====
+  if (message.type === 'REFRESH_AUTH_STATE') {
+    (async () => {
+      const stored = await chrome.storage.local.get('authState');
+      const authState = stored.authState;
+
+      if (!authState || authState.status !== 'pending') {
+        // 没有正在进行的授权, 检查是否已经有 token 了
+        const config = await getConfig();
+        if (config.githubToken) {
+          // 已经授权成功了, 只是 authState 没同步
+          await chrome.storage.local.set({
+            authState: {
+              status: 'success',
+              username: config.githubUser || '',
+              keyLoaded: !!config.rsaPrivateKeyPem,
+              keyError: config.rsaPrivateKeyPem ? '' : '私钥未加载',
+              completedAt: Date.now(),
+            }
+          });
+          return { success: true, status: 'already_authorized' };
+        }
+        return { success: true, status: 'no_pending_auth' };
+      }
+
+      // 有 pending 授权, 尝试直接检查 token 是否已存在
+      const config = await getConfig();
+      if (config.githubToken) {
+        await chrome.storage.local.set({
+          authState: {
+            status: 'success',
+            username: config.githubUser || '',
+            keyLoaded: !!config.rsaPrivateKeyPem,
+            keyError: config.rsaPrivateKeyPem ? '' : '私钥未加载',
+            completedAt: Date.now(),
+          }
+        });
+        return { success: true, status: 'already_authorized' };
+      }
+
+      return { success: true, status: 'still_pending' };
+    })().then(sendResponse);
+    return true;
+  }
+
+  // ===== Popup: 打开钉住窗口 =====
+  if (message.type === 'OPEN_PINNED_WINDOW') {
+    chrome.windows.create({
+      url: chrome.runtime.getURL('popup.html?pinned=true'),
+      type: 'panel',
+      width: 420,
+      height: 700,
+    });
+    return false;
+  }
+
+  // ===== Popup: 更新仓库配置 =====
+  if (message.type === 'UPDATE_REPO_CONFIG') {
+    (async () => {
+      const config = await getConfig();
+      if (message.repoOwner !== undefined) config.repoOwner = message.repoOwner.trim() || DEFAULT_CONFIG.repoOwner;
+      if (message.repoName !== undefined) config.repoName = message.repoName.trim() || DEFAULT_CONFIG.repoName;
+      if (message.repoBranch !== undefined) config.repoBranch = message.repoBranch.trim() || DEFAULT_CONFIG.repoBranch;
+      if (message.repoKeyPath !== undefined) config.repoKeyPath = message.repoKeyPath.trim() || DEFAULT_CONFIG.repoKeyPath;
+      await setConfig(config);
+      return { success: true };
     })().then(sendResponse);
     return true;
   }

@@ -34,6 +34,16 @@ const tokenBody = $('tokenBody');
 const tokenInput = $('tokenInput');
 const tokenSubmit = $('tokenSubmit');
 const toast = $('toast');
+const refreshAuthBtn = $('refreshAuthBtn');
+const pinWindowBtn = $('pinWindowBtn');
+const repoConfigToggle = $('repoConfigToggle');
+const repoConfigArrow = $('repoConfigArrow');
+const repoConfigBody = $('repoConfigBody');
+const repoOwnerInput = $('repoOwnerInput');
+const repoNameInput = $('repoNameInput');
+const repoBranchInput = $('repoBranchInput');
+const repoKeyPathInput = $('repoKeyPathInput');
+const repoConfigSubmit = $('repoConfigSubmit');
 
 // ============ 工具 ============
 
@@ -96,6 +106,19 @@ function updateUI(config) {
   // 开关
   autoDecryptSwitch.checked = config.autoDecrypt !== false;
   enableSwitch.checked = config.enabled !== false;
+
+  // 仓库配置
+  repoOwnerInput.value = config.repoOwner || '';
+  repoNameInput.value = config.repoName || '';
+  repoBranchInput.value = config.repoBranch || '';
+  repoKeyPathInput.value = config.repoKeyPath || '';
+
+  // 更新安全说明中的仓库名
+  const securityInfo = document.getElementById('securityInfo');
+  if (securityInfo) {
+    const repoDisplay = `${config.repoOwner || 'HengXin666'}/${config.repoName || 'HXLoLi-imouto'}`;
+    securityInfo.innerHTML = `🛡️ <strong>安全模型</strong>: 你的 GitHub Token 仅用于读取私有仓库 <code>${repoDisplay}</code> 中的 RSA 私钥。解密完全在本地完成，零网络传输密文。`;
+  }
 }
 
 // ============ 初始化 ============
@@ -354,6 +377,68 @@ async function notifyTab() {
     // ignore
   }
 }
+
+// ============ 刷新授权状态 ============
+
+refreshAuthBtn.addEventListener('click', async () => {
+  refreshAuthBtn.disabled = true;
+  refreshAuthBtn.textContent = '🔃 检查中...';
+
+  const result = await sendMsg({ type: 'REFRESH_AUTH_STATE' });
+
+  if (result?.status === 'already_authorized') {
+    showToast('✅ 授权已完成, 状态已同步');
+    // 刷新 UI
+    const config = await sendMsg({ type: 'GET_FULL_CONFIG' });
+    if (config) updateUI(config);
+    // 隐藏 device flow 面板
+    deviceFlowPanel.classList.remove('show');
+    authSection.classList.add('hidden');
+    notifyTab();
+  } else if (result?.status === 'still_pending') {
+    showToast('⏳ 授权仍在等待中, 请在 GitHub 完成验证', '#d29922');
+  } else {
+    showToast('ℹ️ 没有正在进行的授权流程', '#58a6ff');
+  }
+
+  refreshAuthBtn.disabled = false;
+  refreshAuthBtn.textContent = '🔃 刷新授权状态';
+});
+
+// ============ 钉住窗口 ============
+
+pinWindowBtn.addEventListener('click', async () => {
+  await sendMsg({ type: 'OPEN_PINNED_WINDOW' });
+});
+
+// ============ 仓库配置折叠面板 ============
+
+repoConfigToggle.addEventListener('click', () => {
+  const isOpen = repoConfigBody.classList.toggle('show');
+  repoConfigArrow.classList.toggle('open', isOpen);
+});
+
+repoConfigSubmit.addEventListener('click', async () => {
+  repoConfigSubmit.disabled = true;
+  repoConfigSubmit.textContent = '💾 保存中...';
+
+  const result = await sendMsg({
+    type: 'UPDATE_REPO_CONFIG',
+    repoOwner: repoOwnerInput.value,
+    repoName: repoNameInput.value,
+    repoBranch: repoBranchInput.value,
+    repoKeyPath: repoKeyPathInput.value,
+  });
+
+  if (result?.success) {
+    showToast('✅ 仓库配置已保存');
+  } else {
+    showToast('❌ 保存失败', '#f85149');
+  }
+
+  repoConfigSubmit.disabled = false;
+  repoConfigSubmit.textContent = '💾 保存仓库配置';
+});
 
 // ============ 启动 ============
 

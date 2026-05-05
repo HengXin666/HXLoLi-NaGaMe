@@ -358,6 +358,39 @@
       text-decoration: none;
     }
 
+    /* 仓库配置 */
+    .repo-config-field {
+      margin-bottom: 8px;
+    }
+
+    .repo-config-label {
+      display: block;
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 4px;
+    }
+
+    .repo-config-input {
+      width: 100%;
+      padding: 7px 10px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e6edf3;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .repo-config-input:focus {
+      border-color: #58a6ff;
+    }
+
+    .repo-config-input::placeholder {
+      color: #484f58;
+    }
+
     /* 开关 */
     .switch-row {
       display: flex;
@@ -554,8 +587,8 @@
     </div>
 
     <!-- 安全说明 -->
-    <div class="security-info">
-      🛡️ <strong>安全模型</strong>: 你的 GitHub Token 仅用于读取私有仓库 <code>HXLoLi-imouto</code> 中的 RSA 私钥。
+    <div class="security-info" id="securityInfo">
+      🛡️ <strong>安全模型</strong>: 你的 GitHub Token 仅用于读取私有仓库中的 RSA 私钥。
       解密完全在本地完成，零网络传输密文。
     </div>
 
@@ -580,6 +613,45 @@
     <div class="btn-group">
       <button class="btn btn-secondary" id="refreshKeyBtn">🔑 刷新私钥</button>
       <button class="btn btn-secondary" id="refreshPageBtn">🔄 刷新页面</button>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-secondary" id="refreshAuthBtn">🔃 刷新授权状态</button>
+      <button class="btn btn-secondary" id="pinWindowBtn">📌 钉住窗口</button>
+    </div>
+
+    <!-- 仓库配置 -->
+    <div class="token-section">
+      <button class="collapse-header" id="repoConfigToggle">
+        <span class="collapse-arrow" id="repoConfigArrow">▶</span>
+        ⚙️ 仓库配置
+      </button>
+      <div class="collapse-body" id="repoConfigBody">
+        <div class="repo-config-field">
+          <label class="repo-config-label">仓库 Owner</label>
+          <input type="text" class="repo-config-input" id="repoOwnerInput"
+                 placeholder="HengXin666" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="repo-config-field">
+          <label class="repo-config-label">仓库名</label>
+          <input type="text" class="repo-config-input" id="repoNameInput"
+                 placeholder="HXLoLi-imouto" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="repo-config-field">
+          <label class="repo-config-label">分支</label>
+          <input type="text" class="repo-config-input" id="repoBranchInput"
+                 placeholder="main" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="repo-config-field">
+          <label class="repo-config-label">私钥路径</label>
+          <input type="text" class="repo-config-input" id="repoKeyPathInput"
+                 placeholder="private-key.pem" autocomplete="off" spellcheck="false">
+        </div>
+        <button class="token-submit" id="repoConfigSubmit">💾 保存仓库配置</button>
+        <div class="token-hint">
+          修改后需刷新私钥才能生效。留空则使用默认值。
+        </div>
+      </div>
     </div>
 
     <!-- 备用: Token 输入 -->
