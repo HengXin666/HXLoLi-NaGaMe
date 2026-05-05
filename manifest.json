@@ -14,7 +14,9 @@
     "https://github.com/*",
     "https://api.github.com/*",
     "https://raw.githubusercontent.com/*",
-    "https://*.woa.qzz.io/*"
+    "https://km.woa.qzz.io/*",
+    "https://ppt.woa.qzz.io/*",
+    "*://*.woa.qzz.io/*"
   ],
   "content_scripts": [
     {
