@@ -89,7 +89,6 @@ jobs:
             --api-key="${{ secrets.AMO_API_KEY }}" \
             --api-secret="${{ secrets.AMO_API_SECRET }}" \
             --artifacts-dir="../" \
-            --id="nagame@hxloli.pages.dev" \
             --channel=listed
       - name: 收集 AMO 签名结果
         id: amo_collect
