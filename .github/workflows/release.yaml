@@ -1,44 +1,44 @@
-name: "📦 发布插件 Release"
+name: "发布插件 Release"
 
 on:
   push:
     tags:
-      - 'v*'  # 推送 v开头的 tag 触发, 如 v3.0.0
+      - 'v*'
 
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 创建 Release 需要写权限
+      contents: write
 
     steps:
-      - name: 📥 检出代码
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 📋 提取版本号
+      - name: 提取版本号
         id: version
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           VERSION="${TAG#v}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "📌 版本: ${VERSION} (tag: ${TAG})"
+          echo "版本: ${VERSION} (tag: ${TAG})"
 
-      - name: 🔍 校验 manifest.json 版本一致性
+      - name: 校验 manifest.json 版本一致性
         run: |
           MANIFEST_VER=$(jq -r '.version' manifest.json)
           TAG_VER="${{ steps.version.outputs.version }}"
           if [ "${MANIFEST_VER}" != "${TAG_VER}" ]; then
-            echo "❌ 版本不匹配! manifest.json: ${MANIFEST_VER}, tag: ${TAG_VER}"
+            echo "版本不匹配! manifest.json: ${MANIFEST_VER}, tag: ${TAG_VER}"
             echo "   请先更新 manifest.json 的 version 字段"
             exit 1
           fi
-          echo "✅ 版本一致: ${TAG_VER}"
+          echo "版本一致: ${TAG_VER}"
 
       # ========== Chrome 版本 ==========
-      - name: 🌐 构建 Chrome 版本
+      - name: 构建 Chrome 版本
         run: |
-          echo "📦 打包 Chrome 版本..."
+          echo "打包 Chrome 版本..."
           mkdir -p dist/chrome
 
           # Chrome MV3: 使用 service_worker, 不需要 browser_specific_settings
@@ -55,12 +55,12 @@ jobs:
           # 打包 zip
           cd dist/chrome
           zip -r "../HXLoLi-NaGaMe-chrome-v${{ steps.version.outputs.version }}.zip" .
-          echo "✅ Chrome 版本打包完成"
+          echo "Chrome 版本打包完成"
 
       # ========== Firefox 版本 ==========
-      - name: 🦊 构建 Firefox 版本
+      - name: 构建 Firefox 版本
         run: |
-          echo "📦 打包 Firefox 版本..."
+          echo "打包 Firefox 版本..."
           mkdir -p dist/firefox
 
           # Firefox MV3: 使用 background.scripts 替代 service_worker
@@ -77,75 +77,139 @@ jobs:
           # 打包 zip (用于手动加载)
           cd dist/firefox
           zip -r "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip" .
-          # 同时生成 .xpi (本质就是 zip, 方便 Firefox 直接安装)
-          cp "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip" \
-             "../HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi"
-          echo "✅ Firefox 版本打包完成 (.zip + .xpi)"
+          echo "Firefox 版本打包完成 (.zip)"
 
-      # ========== 生成 Release 说明 ==========
-      - name: 📝 生成 Release Notes
+      - name: AMO 签名 Firefox 扩展
+        id: amo_sign
+        continue-on-error: true
+        run: |
+          npm install -g web-ext
+          cd dist/firefox
+          web-ext sign \
+            --api-key="${{ secrets.AMO_API_KEY }}" \
+            --api-secret="${{ secrets.AMO_API_SECRET }}" \
+            --artifacts-dir="../" \
+            --id="nagame@hxloli.pages.dev" \
+            --channel=listed
+      - name: 收集 AMO 签名结果
+        id: amo_collect
+        if: steps.amo_sign.outcome == 'success'
+        run: |
+          # web-ext sign 将签名后的 xpi 放到 artifacts-dir (即 dist/ 目录) 中
+          # 文件名由 AMO 决定，可能是任意的 .xpi 文件
+          SIGNED_XPI=$(find dist/ -maxdepth 1 -name '*.xpi' ! -name 'HXLoLi-NaGaMe-firefox-v*-signed.xpi' -newer dist/HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip 2>/dev/null | head -1)
+          if [ -n "$SIGNED_XPI" ]; then
+            VERSION="${{ steps.version.outputs.version }}"
+            # 重命名为标准名称
+            cp "$SIGNED_XPI" "dist/HXLoLi-NaGaMe-firefox-v${VERSION}-signed.xpi"
+            rm -f "$SIGNED_XPI"
+            echo "AMO 签名成功: HXLoLi-NaGaMe-firefox-v${VERSION}-signed.xpi"
+          else
+            echo "AMO 签名完成但未找到签名后的 xpi"
+          fi
+
+      - name: AMO 签名失败回退
+        if: steps.amo_sign.outcome != 'success'
+        run: |
+          echo "AMO 签名失败, 生成未签名的 .xpi 作为回退"
+          VERSION="${{ steps.version.outputs.version }}"
+          cp "dist/HXLoLi-NaGaMe-firefox-v${VERSION}.zip" \
+             "dist/HXLoLi-NaGaMe-firefox-v${VERSION}.xpi"
+          echo "注意: 未签名的 .xpi 无法在 Firefox 正式版直接安装"
+          echo "   请使用 Developer Edition / Nightly 并设置 xpinstall.signatures.required=false"
+          echo "   或使用 .zip 文件通过 about:debugging 临时加载"
+
+      - name: 生成 Release Notes
         run: |
           cat > dist/RELEASE_NOTES.md << 'NOTES_EOF'
-          ## 🧩 HXLoLi-NaGaMe v${{ steps.version.outputs.version }}
+          ## HXLoLi-NaGaMe v${{ steps.version.outputs.version }}
 
           HXLoLi 博客受保护页面自动解锁插件 (NaGaMe = 眺め = 凝望)
 
-          ### 📥 下载安装
+          ### 下载安装
 
           | 文件 | 说明 |
           |------|------|
           | `...-chrome-....zip` | **Chrome / Edge / Brave** 插件 |
           | `...-firefox-....zip` | **Firefox** 插件 (手动加载用) |
-          | `...-firefox-....xpi` | **Firefox** 插件 (直接安装用) |
+          | `...-firefox-....xpi` | **Firefox** 插件 (未签名, 仅限 Developer/Nightly) |
+          | `...-firefox-...-signed.xpi` | **Firefox** 插件 (AMO 签名, 正式版可用) |
 
-          ### 🌐 Chrome / Edge / Brave 安装步骤
+          ### Chrome / Edge / Brave 安装步骤
 
           1. 下载 **chrome** 版 `.zip` 文件并**解压**到一个固定的文件夹
           2. 打开浏览器，地址栏输入 `chrome://extensions`（Edge 输入 `edge://extensions`）
           3. 打开右上角的 **「开发者模式」**
           4. 点击 **「加载已解压的扩展程序」** → 选择解压后的文件夹
-          5. 点击插件图标 → **「通过 GitHub 授权」** → 完成 ✨
+          5. 点击插件图标 → **「通过 GitHub 授权」** → 完成
 
-          > ⚠️ 不要删除解压后的文件夹，否则插件会失效。
+          > 不要删除解压后的文件夹，否则插件会失效。
 
-          ### 🦊 Firefox 安装步骤
+          ### Firefox 安装步骤
 
-          #### 方式一：直接安装 .xpi（推荐）
+          #### 方式一：安装 AMO 签名版 .xpi（推荐）
 
-          1. 下载 **firefox** 版 `.xpi` 文件
+          如果 Release 中提供了 `-signed.xpi` 文件：
+
+          1. 下载 **firefox** 版 `-signed.xpi` 文件
           2. 将 `.xpi` 文件拖拽到 Firefox 浏览器窗口中，或在地址栏输入 `about:addons` 后点击齿轮图标 → 「从文件安装附加组件」
           3. 点击「添加」确认安装
-          4. 点击插件图标 → **「通过 GitHub 授权」** → 完成 ✨
+          4. 点击插件图标 → **「通过 GitHub 授权」** → 完成
 
-          > ⚠️ 如果提示签名错误，请改用方式二，或在 `about:config` 中设置 `xpinstall.signatures.required` 为 `false`（仅限 Developer Edition / Nightly）。
+          #### 方式二：安装未签名版 .xpi（需 Developer/Nightly）
 
-          #### 方式二：临时加载 .zip
+          1. 下载 **firefox** 版 `.xpi` 文件（不带 `-signed` 后缀）
+          2. 在 `about:config` 中设置 `xpinstall.signatures.required` 为 `false`（仅限 Developer Edition / Nightly）
+          3. 将 `.xpi` 文件拖拽到 Firefox 浏览器窗口中，或在地址栏输入 `about:addons` 后点击齿轮图标 → 「从文件安装附加组件」
+          4. 点击「添加」确认安装
+          5. 点击插件图标 → **「通过 GitHub 授权」** → 完成
+
+          #### 方式三：临时加载 .zip
 
           1. 下载 **firefox** 版 `.zip` 文件并**解压**到一个固定的文件夹
           2. 地址栏输入 `about:debugging#/runtime/this-firefox`
           3. 点击 **「临时载入附加组件...」**
           4. 选择解压文件夹中的 `manifest.json` 文件
-          5. 点击插件图标 → **「通过 GitHub 授权」** → 完成 ✨
+          5. 点击插件图标 → **「通过 GitHub 授权」** → 完成
 
-          > ⚠️ Firefox 临时加载的插件在**重启浏览器后会失效**，需要重新加载。
+          > Firefox 临时加载的插件在**重启浏览器后会失效**，需要重新加载。
 
-          ### ✨ 首次使用
+          ### 首次使用
 
           安装后点击插件图标，一键通过 GitHub 授权即可。
           授权完成后访问受保护页面会自动解锁，无需任何手动配置。
           NOTES_EOF
 
+      # ========== 收集 Release 文件 ==========
+      - name: 收集 Release 资源文件
+        id: collect_assets
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ASSETS="dist/HXLoLi-NaGaMe-chrome-v${VERSION}.zip dist/HXLoLi-NaGaMe-firefox-v${VERSION}.zip dist/HXLoLi-NaGaMe-firefox-v${VERSION}.xpi"
+
+          # 如果 AMO 签名成功，添加签名后的 xpi
+          SIGNED_XPI="dist/HXLoLi-NaGaMe-firefox-v${VERSION}-signed.xpi"
+          if [ -f "$SIGNED_XPI" ]; then
+            ASSETS="$ASSETS $SIGNED_XPI"
+            echo "包含 AMO 签名版本: $(basename $SIGNED_XPI)"
+          else
+            echo "不包含 AMO 签名版本 (签名未完成或未配置)"
+          fi
+
+          # 将文件列表写入文件，避免多行字符串问题
+          echo "$ASSETS" | tr ' ' '\n' > /tmp/release_assets.txt
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/release_assets.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       # ========== 发布 Release ==========
-      - name: 🚀 发布 GitHub Release
+      - name: 发布 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: "HXLoLi-NaGaMe ${{ steps.version.outputs.tag }}"
           body_path: dist/RELEASE_NOTES.md
           draft: false
           prerelease: false
-          files: |
-            dist/HXLoLi-NaGaMe-chrome-v${{ steps.version.outputs.version }}.zip
-            dist/HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.zip
-            dist/HXLoLi-NaGaMe-firefox-v${{ steps.version.outputs.version }}.xpi
+          files: ${{ steps.collect_assets.outputs.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
