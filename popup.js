@@ -47,6 +47,10 @@ const repoConfigSubmit = $('repoConfigSubmit');
 
 // ============ 工具 ============
 
+/**
+ * HXLoLi-NaGaMe 接入 Agent Notes v2
+ * .agents/notes/implemented/process/2026-10-08-repository-agent-notes-v2-adoption.md
+ */
 function showToast(msg, color = '#3fb950') {
   toast.textContent = msg;
   toast.style.background = color;

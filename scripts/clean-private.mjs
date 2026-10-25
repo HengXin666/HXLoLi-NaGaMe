@@ -20,6 +20,10 @@ const projectRoot = resolve(__dirname, '..');
 const defaultLocalPath = resolve(projectRoot, '..', 'HXLoLi-imouto');
 const localPath = process.argv[2] || defaultLocalPath;
 
+/**
+ * HXLoLi-NaGaMe 接入 Agent Notes v2
+ * .agents/notes/implemented/process/2026-10-08-repository-agent-notes-v2-adoption.md
+ */
 function getRelativePaths(dir, base = dir) {
   const results = [];
   if (!existsSync(dir)) return results;

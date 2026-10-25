@@ -138,7 +138,7 @@
 
   /**
    * 找到 marker 所在的 ProtectedPage 容器, 直接替换整个锁定界面为解密后的 HTML。
-   * 这是唯一 100% 可靠的方式 —— Content Script 与页面共享 DOM 树。
+   * 这是唯一 100% 可靠的方式  Content Script 与页面共享 DOM 树。
    */
   function replaceWithDecryptedContent(marker, html) {
     // marker 是 [data-hx-protected] 的 div, 它的父元素是 React 的 protectedContainer
